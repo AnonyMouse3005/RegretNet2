@@ -1,0 +1,2 @@
+model,n,k,d,phase,mean_social_cost,max_regret,std_social_cost,min_social_cost,max_social_cost,duration,max_memory,metric
+MoulinNetSystem,5,2,1,train,0.08261444419622421,nan,0.09185972809791565,2.018766463152133e-05,0.23446442186832428,41.827969789505005,0.00116845703125,0.08261444419622421

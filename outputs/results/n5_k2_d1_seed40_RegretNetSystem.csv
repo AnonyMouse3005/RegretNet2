@@ -1,0 +1,2 @@
+model,n,k,d,phase,mean_social_cost,max_regret,std_social_cost,min_social_cost,max_social_cost,duration,max_memory,metric
+RegretNetSystem,5,2,1,train,0.10447054356336594,0.010132869705557823,0.07368011772632599,0.018163803964853287,0.21578235924243927,24.71741008758545,0.1203251953125,inf
