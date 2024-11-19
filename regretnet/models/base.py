@@ -11,11 +11,13 @@ from regretnet.data_modules.base import TensorFrame
 def social_cost_each_l1(peaks: torch.Tensor, facilities: torch.Tensor):
     """ Calculate the social cost for each agent with l1 distance.
 
-    :param peaks: locations of agents in shape (*, d, n)
-    :param facilities: locations of facilities in shape (*, d, k)
-    :return: the social cost for each agent in shape (*, n)
+    :param peaks: locations of agents in shape (batch_size, d, n)
+    :param facilities: locations of facilities in shape (batch_size, d, k)
+    :return: the social cost for each agent in shape (batch_size, n)
     """
     costs, _ = torch.min(torch.sum(torch.abs(peaks.unsqueeze(-1) - facilities.unsqueeze(-2)), dim=-3), dim=-1)
+    # broadcasting: (batch_size, d, n, 1) - (batch_size, d, 1, k) -> (batch_size, d, n, k) i.e., social cost of agent i wrt facility k
+    # sum(..., dim=-3) -> (batch_size, n, k) i.e., unchanged for RegretNet
     return costs
 
 

@@ -103,7 +103,7 @@ def run_train(
         # out of cpu memory
         r.max_memory = float('inf')
 
-    model = model.load_from_checkpoint(trainer.checkpoint_callback.best_model_path)
+    model = type(model).load_from_checkpoint(trainer.checkpoint_callback.best_model_path)
 
     if tag is not None:
         r.write_csv(tag)

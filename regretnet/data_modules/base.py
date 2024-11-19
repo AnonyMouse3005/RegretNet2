@@ -1,5 +1,6 @@
 from typing import Optional, Mapping, Iterator, Callable, List
 from dataclasses import dataclass, fields
+from copy import deepcopy
 
 import numpy as np
 import pytorch_lightning as pl
@@ -69,8 +70,8 @@ class TensorFrame:
             batch_size, num_misreports, d, n = self.misreports.size()
             misreport_peaks = self.peaks.unsqueeze(1).unsqueeze(2).repeat(1, n, num_misreports, 1, 1)
             for i in range(n):
-                misreport_peaks[:, i, :, :, i] = self.misreports[:, :, :, i]
-            return misreport_peaks
+                misreport_peaks[:, i, :, :, i] = self.misreports[:, :, :, i]  # for each misreport of i, there are n additional profiles (since we want to keep peaks from other agents intact)
+            return misreport_peaks  # (batch_size, n, num_misreports, d, n)
 
     def to(self, device: torch.device):
         return TensorFrame(
@@ -111,6 +112,7 @@ class BaseDataModule(pl.LightningDataModule):
             test_set_factory: Optional[Callable[[], Dataset]] = None,
             batch_size: int = 1000,
             num_workers: int = 0,
+            on_the_fly: bool = False,  # if data (randomly) generated on the fly within factory
     ):
         """Base DataModule that wraps datasets to interact with train, val and test actions.
 
@@ -126,6 +128,7 @@ class BaseDataModule(pl.LightningDataModule):
         self.test_set_factory = test_set_factory
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.on_the_fly = on_the_fly
 
         self.train_set = None
         self.val_set = None
@@ -135,7 +138,10 @@ class BaseDataModule(pl.LightningDataModule):
         if stage == 'fit' and self.train_set_factory is not None:
             self.train_set = self.train_set_factory()
         if stage in ['fit', 'validate'] and self.val_set_factory is not None:
-            self.val_set = self.val_set_factory()
+            if self.on_the_fly:
+                self.val_set = deepcopy(self.train_set)  # no validation step (i.e., use entire train set for validation)
+            else:
+                self.val_set = self.val_set_factory()
         if stage in ['test', 'predict'] and self.test_set_factory is not None:
             self.test_set = self.test_set_factory()
 
@@ -156,7 +162,7 @@ class BaseDataModule(pl.LightningDataModule):
         if self.val_set is not None:
             return DataLoader(
                 self.val_set,
-                batch_size=self.batch_size,
+                batch_size=self.val_set.sample_num,
                 shuffle=False,
                 collate_fn=TensorFrame.from_ndarray_frames,
                 num_workers=self.num_workers,
@@ -168,7 +174,7 @@ class BaseDataModule(pl.LightningDataModule):
         if self.test_set is not None:
             return DataLoader(
                 self.test_set,
-                batch_size=self.batch_size,
+                batch_size=self.test_set.sample_num,
                 shuffle=False,
                 collate_fn=TensorFrame.from_ndarray_frames,
                 num_workers=self.num_workers,

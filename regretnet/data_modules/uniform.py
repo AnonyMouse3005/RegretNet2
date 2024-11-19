@@ -51,11 +51,11 @@ class UniformDataModule(BaseDataModule):
             self,
             n: int,
             d: int = 1,
-            train_num_misreports: int = 5,
+            train_num_misreports: int = 20,  # NOTE: 20 is equivalent to M' = 5 as workaround, albeit slower
             test_num_misreports: int = 50,
-            batch_size: int = 1000,
+            batch_size: int = 500,  # NOTE: for training in particular; use all samples for validating and testing
             num_workers: int = 0,
-            train_sample_num: int = 1000,
+            train_sample_num: int = 25000,
             val_sample_num: int = 2000,
             test_sample_num: int = 2000,
             train_dynamic: bool = True
@@ -72,6 +72,7 @@ class UniformDataModule(BaseDataModule):
                 UniformDataset, n=n, d=d, sample_num=test_sample_num, num_misreports=test_num_misreports
             ),
             batch_size,
-            num_workers
+            num_workers,
+            on_the_fly=True
         )
         self.save_hyperparameters()
