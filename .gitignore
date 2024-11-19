@@ -1,2 +1,3 @@
 __pycache__/
-outputs/
+outputs/checkpoints/
+outputs/train_logs/
