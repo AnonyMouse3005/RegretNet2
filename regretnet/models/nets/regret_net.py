@@ -52,6 +52,7 @@ class RegretNetSystem(BaseSystem):
             n: int,
             k: int,
             agent_weights: torch.Tensor,
+            objective: str,
             hidden_layer_channels: Union[List[int], Tuple[int, ...]] = (40, 40, 40, 40),
             lr: float = 0.005,
             gamma: float = 0.99,
@@ -63,6 +64,7 @@ class RegretNetSystem(BaseSystem):
         )
         self.n = n
         self.agent_weights = agent_weights
+        self.objective = objective
         self.register_buffer('lambda_t', torch.tensor(0))
         '''
         NOTE: rho (weight for regret penalty term) was not specified in the paper,
@@ -110,8 +112,10 @@ class RegretNetSystem(BaseSystem):
         # # unweighted social cost
         # cost = torch.mean(costs)  # (1,) i.e., across batch samples AND across agents
         # weighted social cost
-        cost = torch.mean(costs @ self.agent_weights/self.agent_weights.sum())
-        # TODO: change objective to max cost (across agents)
+        if self.objective == 'max':  # NOTE: max social cost only makes sense for unweighted case
+            cost = torch.mean(torch.max(costs, dim=1)[0])
+        else:
+            cost = torch.mean(costs @ self.agent_weights/self.agent_weights.sum())
 
         self.log('lr', self.optimizers().optimizer.param_groups[0]['lr'], on_step=True, prog_bar=True)
 

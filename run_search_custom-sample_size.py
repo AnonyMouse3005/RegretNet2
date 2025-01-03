@@ -1,9 +1,3 @@
-'''
-Usage:
-argv[0]: unweighted (0) or weighted (1)?
-argv[1] (optional, only if unweighted): optimizing 'mean' or 'max' social cost?
-Manually specify the distribution(s), n_agent(s), n_location(s), and model(s)
-'''
 import contextlib
 import functools
 import logging
@@ -25,14 +19,14 @@ from regretnet.configs import output_result_dir, output_train_log_dir
 from regretnet.utils import Record, lightning_logger
 
 
-def model_builders(model_classes: List[Type[pl.LightningModule]], n: int, k: int, d: int, agent_weights: torch.Tensor, objective: str):
+def model_builders(model_classes: List[Type[pl.LightningModule]], n: int, k: int, d: int, agent_weights: torch.Tensor):
     builders = [
         functools.partial(NonSPRuleSystem, n=n, k=k),
         functools.partial(PercentileRuleSystem, n=n, k=k, max_training_steps=1),
         functools.partial(DictatorRuleSystem, n=n, k=k, max_training_steps=1),
         functools.partial(ConstantRuleSystem, k=k, d=d, divisions=n*2, max_training_steps=1),
         functools.partial(MoulinNetSystem, n=n, k=k),
-        functools.partial(RegretNetSystem, n=n, k=k, agent_weights=agent_weights, objective=objective, lr=0.005, gamma=0.99, hidden_layer_channels=[40, 40, 40, 40]),
+        functools.partial(RegretNetSystem, n=n, k=k, agent_weights=agent_weights, lr=0.005, gamma=0.99, hidden_layer_channels=[40, 40, 40, 40]),
     ]
     return list(b for b in builders if b.func in model_classes)
 
@@ -86,24 +80,21 @@ def worker_func(model_builder, data_module_builder, num_epoch, seed) -> Tuple[Re
 
 def main():
     """Load custom data from file."""
-    with open('data/all_data_train.pkl', 'rb') as f:
-        all_train_data = pickle.load(f)
     with open('data/all_data_test.pkl', 'rb') as f:
         all_test_data = pickle.load(f)
 
     """Change search parameters here."""
     # experiment settings
-    weighted = int(sys.argv[1])  # 0 or 1
-    if not weighted:
-        # objective = input('optimizing mean or max cost? ')  # 'mean' or 'max'
-        objective = sys.argv[2]  # 'mean' or 'max'
-    else:
-        objective = 'mean'
+    weighted = True
     data_distributions = [
-        # 'uniform',
-        'normal',
-        'beta1', 'beta2'
+        'uniform',
+        # 'normal',
+        # 'beta1', 'beta2'
         ]  # ['uniform', 'normal', 'beta1', 'beta2']
+    train_sizes = [
+        2000,
+        5000, 10000, 20000, 50000
+        ]
     devices = [0]
 
     # select range of parameters
@@ -112,8 +103,8 @@ def main():
         # 9,10
         ]
     k_range = [
-        1,
-        2,3,
+        # 1,
+        # 2,3,
         4]
     d_range = [1]
 
@@ -130,70 +121,68 @@ def main():
 
     """Change search parameters above."""
 
-    for data_distribution in data_distributions:
-        if weighted:
-            tag = f'search_{data_distribution}_weighted'
-        else:  # NOTE: max social cost only makes sense for unweighted case
-            tag = f'search_{data_distribution}_max' if objective == 'max' else f'search_{data_distribution}_unweighted'
-        print(f'searching model={list(c.__name__ for c in model_classes)} from n={n_range}, k={k_range}, d={d_range}, {data_distribution} distribution')
-        print(f'results will be stored in {str(output_result_dir.resolve())}')
+    for train_size in train_sizes:
+        with open(f'data/all_data_train_R{train_size:06d}.pkl', 'rb') as f:
+            all_train_data = pickle.load(f)
 
-        # mp.set_start_method('spawn')
-        # device_id_queue = mp.Queue()
-        # for d in devices:
-        #     device_id_queue.put(d)
+        for data_distribution in data_distributions:
+            tag = f'search_R{train_size:06d}_{data_distribution}_weighted' if weighted else f'search_R{train_size:06d}_{data_distribution}_unweighted'
+            print(f'searching model={list(c.__name__ for c in model_classes)} from n={n_range}, k={k_range}, d={d_range}, {data_distribution} distribution')
+            print(f'results will be stored in {str(output_result_dir.resolve())}')
 
-        # with mp.Pool(processes=len(devices), initializer=worker_init, initargs=(device_id_queue, )) as p:
-        results = []
-        for n in n_range:
-            dataset = (data_distribution, n)
-            print(f'running on {dataset}')
-            if weighted:
-                if n == 5:
-                    agent_weights = torch.tensor([5.,1.,1.,1.,1.], device=0)
-                elif n == 9:
-                    agent_weights = torch.tensor([5.,5.,1.,1.,1.,1.,1.,1.,1.], device=0)
-                elif n == 10:
-                    agent_weights = torch.tensor([5.,5.,1.,1.,1.,1.,1.,1.,1.,1.], device=0)
+            # mp.set_start_method('spawn')
+            # device_id_queue = mp.Queue()
+            # for d in devices:
+            #     device_id_queue.put(d)
+
+            # with mp.Pool(processes=len(devices), initializer=worker_init, initargs=(device_id_queue, )) as p:
+            results = []
+            for n in n_range:
+                dataset = (data_distribution, n)
+                print(f'running on {dataset}')
+                if weighted:
+                    if n == 5:
+                        agent_weights = torch.tensor([5.,1.,1.,1.,1.], device=0)
+                    elif n == 9:
+                        agent_weights = torch.tensor([5.,5.,1.,1.,1.,1.,1.,1.,1.], device=0)
+                    elif n == 10:
+                        agent_weights = torch.tensor([5.,5.,1.,1.,1.,1.,1.,1.,1.,1.], device=0)
+                    else:
+                        agent_weights = torch.ones(n, device=0)
                 else:
                     agent_weights = torch.ones(n, device=0)
-            else:
-                agent_weights = torch.ones(n, device=0)
 
-            train_data, test_data = all_train_data[dataset], all_test_data[dataset]
-            for d in d_range:
-                data_module_builder = functools.partial(
-                    CustomDataModule, train_data, test_data, n=n, d=d
-                )
-                for k in k_range:
-                    for model_builder, num_trial, num_epoch in zip(
-                            model_builders(model_classes, n, k, d, agent_weights, objective),
-                            num_trials,
-                            num_epochs
-                    ):
-                        # results.append(p.starmap_async(worker_func, list(
-                        #     [model_builder, data_module_builder, num_epoch, seed]
-                        #     for seed in np.random.randint(low=0, high=10000, size=num_trial)
-                        # )))
-                        results.append([worker_func(model_builder, data_module_builder, num_epoch, seed)
-                            for seed in np.random.randint(low=0, high=10000, size=num_trial)]
-                        )
+                train_data, test_data = all_train_data[dataset], all_test_data[dataset]
+                for d in d_range:
+                    data_module_builder = functools.partial(
+                        CustomDataModule, train_data, test_data, n=n, d=d
+                    )
+                    for k in k_range:
+                        for model_builder, num_trial, num_epoch in zip(
+                                model_builders(model_classes, n, k, d, agent_weights),
+                                num_trials,
+                                num_epochs
+                        ):
+                            # results.append(p.starmap_async(worker_func, list(
+                            #     [model_builder, data_module_builder, num_epoch, seed]
+                            #     for seed in np.random.randint(low=0, high=10000, size=num_trial)
+                            # )))
+                            results.append([worker_func(model_builder, data_module_builder, num_epoch, seed)
+                                for seed in np.random.randint(low=0, high=10000, size=num_trial)]
+                            )
 
-        for r in results:
-            # while not r.ready():
-            #     r.wait(1)
-            # record_list: List[Tuple[Record, Record]] = r.get()
-            if objective == 'max':
-                train_record_sc, test_record_sc = min(r, key=lambda r: r[1].max_social_cost)
-            else:
+            for r in results:
+                # while not r.ready():
+                #     r.wait(1)
+                # record_list: List[Tuple[Record, Record]] = r.get()
                 train_record_sc, test_record_sc = min(r, key=lambda r: r[1].metric)  # only save the best trial in terms of "metric" i.e., mean_social_cost
-            train_record_rgt, test_record_rgt = min(r, key=lambda r: r[1].max_regret)  # only save the best trial in terms of max_regret
-            print(f'Best record (sc): {test_record_sc}')
-            print(f'Best record (rgt): {test_record_rgt}')
-            train_record_sc.write_csv(tag+'_sc')
-            test_record_sc.write_csv(tag+'_sc')
-            train_record_rgt.write_csv(tag+'_rgt')
-            test_record_rgt.write_csv(tag+'_rgt')
+                train_record_rgt, test_record_rgt = min(r, key=lambda r: r[1].max_regret)  # only save the best trial in terms of max_regret
+                print(f'Best record (sc): {test_record_sc}')
+                print(f'Best record (rgt): {test_record_rgt}')
+                train_record_sc.write_csv(tag+'_sc')
+                test_record_sc.write_csv(tag+'_sc')
+                train_record_rgt.write_csv(tag+'_rgt')
+                test_record_rgt.write_csv(tag+'_rgt')
 
 
 if __name__ == '__main__':

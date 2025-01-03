@@ -1,9 +1,3 @@
-'''
-Usage:
-argv[0]: unweighted (0) or weighted (1)?
-argv[1] (optional, only if unweighted): optimizing 'mean' or 'max' social cost?
-Manually specify the distribution(s), n_agent(s), n_location(s), and model(s)
-'''
 import contextlib
 import functools
 import logging
@@ -93,28 +87,26 @@ def main():
 
     """Change search parameters here."""
     # experiment settings
-    weighted = int(sys.argv[1])  # 0 or 1
-    if not weighted:
-        # objective = input('optimizing mean or max cost? ')  # 'mean' or 'max'
-        objective = sys.argv[2]  # 'mean' or 'max'
-    else:
-        objective = 'mean'
+    n_weight_seeds = 10
+    objective = 'mean'
     data_distributions = [
-        # 'uniform',
-        'normal',
-        'beta1', 'beta2'
+        'uniform',
+        # 'normal',
+        # 'beta1', 'beta2'
         ]  # ['uniform', 'normal', 'beta1', 'beta2']
     devices = [0]
 
     # select range of parameters
     n_range = [
-        5,
-        # 9,10
+        # 5,
+        # 9,
+        10
         ]
     k_range = [
-        1,
-        2,3,
-        4]
+        # 1,
+        # 2,3,
+        4
+        ]
     d_range = [1]
 
     # select model_classes and specify corresponding num_trials and num_epochs
@@ -131,10 +123,7 @@ def main():
     """Change search parameters above."""
 
     for data_distribution in data_distributions:
-        if weighted:
-            tag = f'search_{data_distribution}_weighted'
-        else:  # NOTE: max social cost only makes sense for unweighted case
-            tag = f'search_{data_distribution}_max' if objective == 'max' else f'search_{data_distribution}_unweighted'
+        tag = f'search_{data_distribution}_arbi-weighted'
         print(f'searching model={list(c.__name__ for c in model_classes)} from n={n_range}, k={k_range}, d={d_range}, {data_distribution} distribution')
         print(f'results will be stored in {str(output_result_dir.resolve())}')
 
@@ -148,17 +137,13 @@ def main():
         for n in n_range:
             dataset = (data_distribution, n)
             print(f'running on {dataset}')
-            if weighted:
-                if n == 5:
-                    agent_weights = torch.tensor([5.,1.,1.,1.,1.], device=0)
-                elif n == 9:
-                    agent_weights = torch.tensor([5.,5.,1.,1.,1.,1.,1.,1.,1.], device=0)
-                elif n == 10:
-                    agent_weights = torch.tensor([5.,5.,1.,1.,1.,1.,1.,1.,1.,1.], device=0)
-                else:
-                    agent_weights = torch.ones(n, device=0)
+            weight_path = f'{output_result_dir}/n{n}_s{n_weight_seeds}_arbitrary-weights.npy'
+            if os.path.exists(weight_path):
+                agent_weights = torch.from_numpy(np.load(weight_path)).to(0)
             else:
-                agent_weights = torch.ones(n, device=0)
+                agent_weights = torch.randint(1,6,(n_weight_seeds, n), dtype=torch.float32, device=0)
+                np.save(weight_path, agent_weights.cpu().numpy())
+            print(agent_weights)
 
             train_data, test_data = all_train_data[dataset], all_test_data[dataset]
             for d in d_range:
@@ -166,27 +151,25 @@ def main():
                     CustomDataModule, train_data, test_data, n=n, d=d
                 )
                 for k in k_range:
-                    for model_builder, num_trial, num_epoch in zip(
-                            model_builders(model_classes, n, k, d, agent_weights, objective),
-                            num_trials,
-                            num_epochs
-                    ):
-                        # results.append(p.starmap_async(worker_func, list(
-                        #     [model_builder, data_module_builder, num_epoch, seed]
-                        #     for seed in np.random.randint(low=0, high=10000, size=num_trial)
-                        # )))
-                        results.append([worker_func(model_builder, data_module_builder, num_epoch, seed)
-                            for seed in np.random.randint(low=0, high=10000, size=num_trial)]
-                        )
+                    for i in range(n_weight_seeds):
+                        for model_builder, num_trial, num_epoch in zip(
+                                model_builders(model_classes, n, k, d, torch.sort(agent_weights[i], descending=True)[0], objective),
+                                num_trials,
+                                num_epochs
+                        ):
+                            # results.append(p.starmap_async(worker_func, list(
+                            #     [model_builder, data_module_builder, num_epoch, seed]
+                            #     for seed in np.random.randint(low=0, high=10000, size=num_trial)
+                            # )))
+                            results.append([worker_func(model_builder, data_module_builder, num_epoch, seed)
+                                for seed in np.random.randint(low=0, high=10000, size=num_trial)]
+                            )
 
         for r in results:
             # while not r.ready():
             #     r.wait(1)
             # record_list: List[Tuple[Record, Record]] = r.get()
-            if objective == 'max':
-                train_record_sc, test_record_sc = min(r, key=lambda r: r[1].max_social_cost)
-            else:
-                train_record_sc, test_record_sc = min(r, key=lambda r: r[1].metric)  # only save the best trial in terms of "metric" i.e., mean_social_cost
+            train_record_sc, test_record_sc = min(r, key=lambda r: r[1].metric)  # only save the best trial in terms of "metric" i.e., mean_social_cost
             train_record_rgt, test_record_rgt = min(r, key=lambda r: r[1].max_regret)  # only save the best trial in terms of max_regret
             print(f'Best record (sc): {test_record_sc}')
             print(f'Best record (rgt): {test_record_rgt}')

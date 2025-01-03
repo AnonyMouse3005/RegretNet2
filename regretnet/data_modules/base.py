@@ -138,9 +138,9 @@ class BaseDataModule(pl.LightningDataModule):
         if stage == 'fit' and self.train_set_factory is not None:
             self.train_set = self.train_set_factory()
         if stage in ['fit', 'validate'] and self.val_set_factory is not None:
-            if self.on_the_fly:
+            if self.on_the_fly:  # for datasets generated randomly on the fly (e.g., as in uniform.py)
                 self.val_set = deepcopy(self.train_set)  # no validation step (i.e., use entire train set for validation)
-            else:
+            else:  # for datasets stored locally (e.g., as in custom.py)
                 self.val_set = self.val_set_factory()
         if stage in ['test', 'predict'] and self.test_set_factory is not None:
             self.test_set = self.test_set_factory()

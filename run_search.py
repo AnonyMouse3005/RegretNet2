@@ -18,14 +18,14 @@ from regretnet.configs import output_result_dir, output_train_log_dir
 from regretnet.utils import Record, lightning_logger
 
 
-def model_builders(model_classes: List[Type[pl.LightningModule]], n: int, k: int, d: int, agent_weights: torch.Tensor):
+def model_builders(model_classes: List[Type[pl.LightningModule]], n: int, k: int, d: int, agent_weights: torch.Tensor, objective: str):
     builders = [
         functools.partial(NonSPRuleSystem, n=n, k=k),
         functools.partial(PercentileRuleSystem, n=n, k=k, max_training_steps=1),
         functools.partial(DictatorRuleSystem, n=n, k=k, max_training_steps=1),
         functools.partial(ConstantRuleSystem, k=k, d=d, divisions=n*2, max_training_steps=1),
         functools.partial(MoulinNetSystem, n=n, k=k),
-        functools.partial(RegretNetSystem, n=n, k=k, agent_weights=agent_weights, lr=0.005, gamma=0.99, hidden_layer_channels=[40, 40, 40, 40]),
+        functools.partial(RegretNetSystem, n=n, k=k, agent_weights=agent_weights, objective=objective, lr=0.005, gamma=0.99, hidden_layer_channels=[40, 40, 40, 40]),
     ]
     return list(b for b in builders if b.func in model_classes)
 
@@ -81,7 +81,11 @@ def main():
     """Change search parameters here."""
     # experiment settings
     weighted = False
-    tag = 'search_weighted' if weighted else 'search_unweighted'
+    if weighted:
+        tag = 'search_weighted'
+    else:
+        objective = input('optimizing mean or max cost? ')  # 'mean' or 'max'
+        tag = 'search_max' if objective == 'max' else 'search_unweighted'
     devices = [0]
 
     # select range of parameters
@@ -96,9 +100,9 @@ def main():
     else:
         agent_weights_list = [torch.ones(n, device=0) for n in n_range]
     k_range = [
-        # 1,
+        1,
         2,
-        # 3,4
+        3,4
         ]
     d_range = [1]
 
@@ -132,7 +136,7 @@ def main():
             )
             for k in k_range:
                 for model_builder, num_trial, num_epoch in zip(
-                        model_builders(model_classes, n, k, d, agent_weights_list[n_idx]),
+                        model_builders(model_classes, n, k, d, agent_weights_list[n_idx], objective),
                         num_trials,
                         num_epochs
                 ):
