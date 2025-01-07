@@ -38,6 +38,8 @@ class BaseSystem(pl.LightningModule):
     def __init__(
             self,
             model: BaseModel,
+            agent_weights: torch.Tensor,
+            objective: str,
             optimizer_builder: Optional[Callable[[Iterable[torch.Tensor]], torch.optim.Optimizer]] = None,
             scheduler_builder: Optional[Callable[[torch.optim.Optimizer], Any]] = None,
     ):
@@ -51,6 +53,8 @@ class BaseSystem(pl.LightningModule):
         """
         super(BaseSystem, self).__init__()
         self.model = model
+        self.agent_weights = agent_weights
+        self.objective = objective
         self.optimizer_builder = optimizer_builder if len(list(self.model.parameters())) > 0 else None
         self.scheduler_builder = scheduler_builder if self.optimizer_builder is not None else None
 
@@ -63,7 +67,12 @@ class BaseSystem(pl.LightningModule):
         facilities = self.model(batch.peaks)
         if self.optimizer_builder is not None:
             self.log('lr', self.optimizers().optimizer.param_groups[0]['lr'], on_step=True, prog_bar=True)
-            loss = torch.mean(social_cost_each_l1(batch.peaks, facilities))
+            # # unweighted social cost
+            # loss = torch.mean(social_cost_each_l1(batch.peaks, facilities))
+            if self.objective == 'max':  # NOTE: max social cost only makes sense for unweighted case
+                loss = torch.mean(torch.max(social_cost_each_l1(batch.peaks, facilities), dim=1)[0])
+            else:
+                loss = torch.mean(social_cost_each_l1(batch.peaks, facilities) @ self.agent_weights/self.agent_weights.sum())
             return loss
         else:
             return None
@@ -77,8 +86,14 @@ class BaseSystem(pl.LightningModule):
         with torch.no_grad():
             facilities = self.model(batch.peaks)
             social_cost = social_cost_each_l1(batch.peaks, facilities)
-            min_social_cost, max_social_cost = torch.aminmax(social_cost, dim=-1)
-            std_social_cost, mean_social_cost = torch.std_mean(social_cost, dim=-1, unbiased=False)
+            # # unweighted social cost
+            # min_social_cost, max_social_cost = torch.aminmax(social_cost, dim=-1)  # across agents
+            # std_social_cost, mean_social_cost = torch.std_mean(social_cost, dim=-1, unbiased=False)
+            # weighted social cost
+            weighted_cost = social_cost * self.agent_weights
+            min_social_cost, max_social_cost = torch.aminmax(weighted_cost, dim=-1)  # across agents
+            mean_social_cost = weighted_cost.sum(dim=-1)/self.agent_weights.sum()
+            std_social_cost = torch.ones(mean_social_cost.size())  # NOTE: for placeholding, don't really need std for weighted social cost
             self.log('mean_social_cost', torch.mean(mean_social_cost), prog_bar=True)
             self.log('std_social_cost', torch.mean(std_social_cost))
             self.log('min_social_cost', torch.mean(min_social_cost))

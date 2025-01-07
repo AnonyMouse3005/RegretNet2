@@ -1,3 +1,9 @@
+'''
+Train on Small, Test on Large (TroSToL)
+Usage:
+argv[0]: unweighted (0) or weighted (1)?
+Manually specify the distribution(s), n_agent(s), n_location(s), and model(s)
+'''
 import contextlib
 import functools
 import logging
@@ -87,7 +93,7 @@ def main():
 
     """Change search parameters here."""
     # experiment settings
-    n_weight_seeds = 10
+    weighted = int(sys.argv[1])  # 0 or 1
     objective = 'mean'
     data_distributions = [
         'uniform',
@@ -98,41 +104,46 @@ def main():
 
     # select range of parameters
     n_range = [
-        # 5,
-        # 9,
-        10
+        5,
+        # 9,10
         ]
+    n_test_range = [  # NOTE: should be larger than n
+        10,
+        # 100,
+    ]
     k_range = [
-        # 1,
-        # 2,3,
-        4
-        ]
+        1,
+        2,3,
+        4]
     d_range = [1]
 
     # select model_classes and specify corresponding num_trials and num_epochs
     model_classes = [
-        PercentileRuleSystem, DictatorRuleSystem, ConstantRuleSystem,
-        NonSPRuleSystem,  # only for mean social cost
-        # MoulinNetSystem,
-        # RegretNetSystem
+        # PercentileRuleSystem, DictatorRuleSystem, ConstantRuleSystem,
+        # NonSPRuleSystem,  # only for mean social cost
+        MoulinNetSystem,
+        RegretNetSystem
         ]
     num_trials = [
-        1, 1, 1,
+        # 1, 1, 1,
+        # 1,
         1,
-        # 10,
-        # 10
+        1
         ]
     num_epochs = [
-        3, 3, 3,
-        1,
-        # 1000,
-        # 1000
+        # 3, 3, 3,
+        # 1,
+        1000,
+        1000
         ]
 
     """Change search parameters above."""
 
     for data_distribution in data_distributions:
-        tag = f'search_{data_distribution}_arbi-weighted'
+        if weighted:
+            tag = f'search_{data_distribution}_weighted-TroSToL'
+        else:  # NOTE: max social cost only makes sense for unweighted case
+            tag = f'search_{data_distribution}_unweighted-TroSToL'
         print(f'searching model={list(c.__name__ for c in model_classes)} from n={n_range}, k={k_range}, d={d_range}, {data_distribution} distribution')
         print(f'results will be stored in {str(output_result_dir.resolve())}')
 
@@ -145,24 +156,29 @@ def main():
         results = []
         for n in n_range:
             dataset = (data_distribution, n)
-            print(f'running on {dataset}')
-            weight_path = f'{output_result_dir}/n{n}_s{n_weight_seeds}_arbitrary-weights.npy'
-            if os.path.exists(weight_path):
-                agent_weights = torch.from_numpy(np.load(weight_path)).to(0)
-            else:
-                agent_weights = torch.randint(1,6,(n_weight_seeds, n), dtype=torch.float32, device=0)
-                np.save(weight_path, agent_weights.cpu().numpy())
-            print(agent_weights)
+            for n_test in n_test_range:
+                dataset_test = (data_distribution, n_test)
+                print(f'training on {dataset}, testing on {dataset_test}')
+                if weighted:
+                    if n == 5:
+                        agent_weights = torch.tensor([5.,1.,1.,1.,1.], device=0)
+                    elif n == 9:
+                        agent_weights = torch.tensor([5.,5.,1.,1.,1.,1.,1.,1.,1.], device=0)
+                    elif n == 10:
+                        agent_weights = torch.tensor([5.,5.,1.,1.,1.,1.,1.,1.,1.,1.], device=0)
+                    else:
+                        agent_weights = torch.ones(n, device=0)
+                else:
+                    agent_weights = torch.ones(n, device=0)
 
-            train_data, test_data = all_train_data[dataset], all_test_data[dataset]
-            for d in d_range:
-                data_module_builder = functools.partial(
-                    CustomDataModule, train_data, test_data, n=n, d=d
-                )
-                for k in k_range:
-                    for i in range(n_weight_seeds):
+                train_data, test_data = all_train_data[dataset], all_test_data[dataset_test]
+                for d in d_range:
+                    data_module_builder = functools.partial(
+                        CustomDataModule, train_data, test_data, n=n, d=d
+                    )
+                    for k in k_range:
                         for model_builder, num_trial, num_epoch in zip(
-                                model_builders(model_classes, n, k, d, torch.sort(agent_weights[i], descending=True)[0], objective),
+                                model_builders(model_classes, n, k, d, agent_weights, objective),
                                 num_trials,
                                 num_epochs
                         ):
@@ -178,12 +194,15 @@ def main():
             # while not r.ready():
             #     r.wait(1)
             # record_list: List[Tuple[Record, Record]] = r.get()
-            train_record_sc, test_record_sc = min(r, key=lambda r: r[1].metric)  # only save the best trial in terms of "metric" i.e., mean_social_cost
+            # if objective == 'max':
+            #     train_record_sc, test_record_sc = min(r, key=lambda r: r[1].max_social_cost)
+            # else:
+            #     train_record_sc, test_record_sc = min(r, key=lambda r: r[1].metric)  # only save the best trial in terms of "metric" i.e., mean_social_cost
             train_record_rgt, test_record_rgt = min(r, key=lambda r: r[1].max_regret)  # only save the best trial in terms of max_regret
-            print(f'Best record (sc): {test_record_sc}')
+            # print(f'Best record (sc): {test_record_sc}')
             print(f'Best record (rgt): {test_record_rgt}')
-            train_record_sc.write_csv(tag+'_sc')
-            test_record_sc.write_csv(tag+'_sc')
+            # train_record_sc.write_csv(tag+'_sc')
+            # test_record_sc.write_csv(tag+'_sc')
             train_record_rgt.write_csv(tag+'_rgt')
             test_record_rgt.write_csv(tag+'_rgt')
 

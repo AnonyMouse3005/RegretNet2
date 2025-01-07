@@ -16,7 +16,8 @@ class ConstantRule(BaseModel):
 
     """
     def __init__(
-            self, k: int, d: int = 1, divisions: int = 10, max_training_steps: int = 1, max_combinations: int = 10000
+            self, k: int, agent_weights: torch.Tensor, objective: str, d: int = 1,
+            divisions: int = 10, max_training_steps: int = 1, max_combinations: int = 10000
     ):
         super().__init__()
         f = torch.arange(0, 1 + 1e-5, 1/(divisions-1))
@@ -33,6 +34,9 @@ class ConstantRule(BaseModel):
                 facilities.append(f[c, :])
             facilities = torch.stack(facilities, dim=0).permute(0, 2, 1)
 
+        self.agent_weights = agent_weights
+        self.objective = objective
+
         self.register_buffer('facilities', facilities)
         self.register_buffer('costs', torch.ones(facilities.size(0)))
         self.register_buffer('current_training_steps', torch.tensor(0))
@@ -41,7 +45,12 @@ class ConstantRule(BaseModel):
 
     def train_once(self, peaks: torch.Tensor):
         for i, f in enumerate(self.facilities):
-            costs = torch.mean(social_cost_each_l1(peaks, f))
+            # # unweighted social cost
+            # costs = torch.mean(social_cost_each_l1(peaks, f))
+            if self.objective == 'max':  # NOTE: max social cost only makes sense for unweighted case
+                costs = torch.mean(torch.max(social_cost_each_l1(peaks, f), dim=1)[0])
+            else:
+                costs = torch.mean(social_cost_each_l1(peaks, f) @ self.agent_weights/self.agent_weights.sum())
             self.costs[i] = self.current_training_steps / (self.current_training_steps + 1) * self.costs[i] + \
                             1 / (self.current_training_steps + 1) * costs
         self.current_training_steps += 1
@@ -57,12 +66,16 @@ class ConstantRuleSystem(BaseSystem):
     def __init__(
             self,
             k: int,
+            agent_weights: torch.Tensor,
+            objective: str,
             d: int = 1,
             divisions: int = 10,
             max_training_steps: int = 1,
             max_combinations: int = 10000,
     ):
         super(ConstantRuleSystem, self).__init__(
-            ConstantRule(k, d, divisions, max_training_steps, max_combinations)
+            ConstantRule(k, agent_weights, objective, d, divisions, max_training_steps, max_combinations),
+            agent_weights,
+            objective
         )
         self.save_hyperparameters()

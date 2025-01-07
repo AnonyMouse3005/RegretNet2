@@ -70,19 +70,30 @@ class MoulinNetSystem(BaseSystem):
             self,
             n: int,
             k: int,
+            agent_weights: torch.Tensor,
+            objective: str,
             L: int = 3,
             J: int = 3,
             lr: float = 0.1,
     ):
         super(MoulinNetSystem, self).__init__(
             MoulinNet(n, k, L, J),
+            agent_weights,
+            objective,
             functools.partial(torch.optim.Adam, lr=lr)
         )
+        self.agent_weights = agent_weights
+        self.objective = objective
         self.save_hyperparameters()
 
     def train_once(self, batch: TensorFrame) -> Optional[torch.Tensor]:
         facilities = self.model(batch.peaks)
         self.log('lr', self.optimizers().optimizer.param_groups[0]['lr'], on_step=True, prog_bar=True)
-        loss = torch.mean(social_cost_each_l1(batch.peaks, facilities))
+        # # unweighted social cost
+        # loss = torch.mean(social_cost_each_l1(batch.peaks, facilities))
+        if self.objective == 'max':  # NOTE: max social cost only makes sense for unweighted case
+            loss = torch.mean(torch.max(social_cost_each_l1(batch.peaks, facilities), dim=1)[0])
+        else:
+            loss = torch.mean(social_cost_each_l1(batch.peaks, facilities) @ self.agent_weights/self.agent_weights.sum())
         regular = torch.mean(torch.relu(self.model.linear[0].weight))
         return loss + regular

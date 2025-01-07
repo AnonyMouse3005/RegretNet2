@@ -27,11 +27,11 @@ from regretnet.utils import Record, lightning_logger
 
 def model_builders(model_classes: List[Type[pl.LightningModule]], n: int, k: int, d: int, agent_weights: torch.Tensor, objective: str):
     builders = [
-        functools.partial(NonSPRuleSystem, n=n, k=k),
-        functools.partial(PercentileRuleSystem, n=n, k=k, max_training_steps=1),
-        functools.partial(DictatorRuleSystem, n=n, k=k, max_training_steps=1),
-        functools.partial(ConstantRuleSystem, k=k, d=d, divisions=n*2, max_training_steps=1),
-        functools.partial(MoulinNetSystem, n=n, k=k),
+        functools.partial(NonSPRuleSystem, n=n, k=k, agent_weights=agent_weights, objective=objective),
+        functools.partial(PercentileRuleSystem, n=n, k=k, agent_weights=agent_weights, objective=objective, max_training_steps=1),
+        functools.partial(DictatorRuleSystem, n=n, k=k, agent_weights=agent_weights, objective=objective, max_training_steps=1),
+        functools.partial(ConstantRuleSystem, k=k, agent_weights=agent_weights, objective=objective, d=d, divisions=n*2, max_training_steps=1),
+        functools.partial(MoulinNetSystem, n=n, k=k, agent_weights=agent_weights, objective=objective),
         functools.partial(RegretNetSystem, n=n, k=k, agent_weights=agent_weights, objective=objective, lr=0.005, gamma=0.99, hidden_layer_channels=[40, 40, 40, 40]),
     ]
     return list(b for b in builders if b.func in model_classes)
@@ -100,7 +100,7 @@ def main():
     else:
         objective = 'mean'
     data_distributions = [
-        # 'uniform',
+        'uniform',
         'normal',
         'beta1', 'beta2'
         ]  # ['uniform', 'normal', 'beta1', 'beta2']
@@ -109,7 +109,7 @@ def main():
     # select range of parameters
     n_range = [
         5,
-        # 9,10
+        9,10
         ]
     k_range = [
         1,
@@ -119,14 +119,23 @@ def main():
 
     # select model_classes and specify corresponding num_trials and num_epochs
     model_classes = [
-        # NonSPRuleSystem, PercentileRuleSystem, MoulinNetSystem,
-        RegretNetSystem]
+        PercentileRuleSystem, DictatorRuleSystem, ConstantRuleSystem,
+        NonSPRuleSystem,  # only for mean social cost
+        MoulinNetSystem,
+        # RegretNetSystem
+        ]
     num_trials = [
-        # 1, 1, 4,
-        10]
+        1, 1, 1,
+        1,
+        10,
+        # 10
+        ]
     num_epochs = [
-        # 1, 3, 100,
-        1000]
+        3, 3, 3,
+        1,
+        1000,
+        # 1000
+        ]
 
     """Change search parameters above."""
 

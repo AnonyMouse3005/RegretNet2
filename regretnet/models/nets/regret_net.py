@@ -59,6 +59,8 @@ class RegretNetSystem(BaseSystem):
     ):
         super(RegretNetSystem, self).__init__(
             RegretNet(n, k, hidden_layer_channels),
+            agent_weights,
+            objective,
             functools.partial(torch.optim.Adam, lr=lr),
             functools.partial(torch.optim.lr_scheduler.StepLR, step_size=100, gamma=gamma)
         )
@@ -111,7 +113,6 @@ class RegretNetSystem(BaseSystem):
         max_regret = torch.max(torch.mean(regrets, dim=0))
         # # unweighted social cost
         # cost = torch.mean(costs)  # (1,) i.e., across batch samples AND across agents
-        # weighted social cost
         if self.objective == 'max':  # NOTE: max social cost only makes sense for unweighted case
             cost = torch.mean(torch.max(costs, dim=1)[0])
         else:

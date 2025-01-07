@@ -21,7 +21,7 @@ class DictatorRule(BaseModel):
     So when combinations > max_combinations, use random sampling to sample combinations.
 
     """
-    def __init__(self, n: int, k: int, max_training_steps: int = 1, max_combinations: int = 10000):
+    def __init__(self, n: int, k: int, agent_weights: torch.Tensor, objective: str, max_training_steps: int = 1, max_combinations: int = 10000):
         super(DictatorRule, self).__init__()
         assert n >= k, 'the number of agents `n` must be greater than or equal to the number of facilities `k`'
 
@@ -32,6 +32,10 @@ class DictatorRule(BaseModel):
             combinations = torch.stack(combinations, dim=0)
         else:
             combinations = torch.tensor(list(itertools.combinations(range(n), k)))
+
+        self.agent_weights = agent_weights
+        self.objective = objective
+
         self.register_buffer('combinations', combinations)
         self.register_buffer('costs', torch.ones(combinations.size(0)))
         self.register_buffer('current_training_steps', torch.tensor(0))
@@ -40,7 +44,12 @@ class DictatorRule(BaseModel):
 
     def train_once(self, peaks: torch.Tensor):
         for i, c in enumerate(self.combinations):
-            costs = torch.mean(social_cost_each_l1(peaks, peaks[..., c]))
+            # # unweighted social cost
+            # costs = torch.mean(social_cost_each_l1(peaks, peaks[..., c]))
+            if self.objective == 'max':  # NOTE: max social cost only makes sense for unweighted case
+                costs = torch.mean(torch.max(social_cost_each_l1(peaks, peaks[..., c]), dim=1)[0])
+            else:
+                costs = torch.mean(social_cost_each_l1(peaks, peaks[..., c]) @ self.agent_weights/self.agent_weights.sum())
             self.costs[i] = self.current_training_steps / (self.current_training_steps + 1) * self.costs[i] + \
                             1 / (self.current_training_steps + 1) * costs
         self.current_training_steps += 1
@@ -57,10 +66,14 @@ class DictatorRuleSystem(BaseSystem):
             self,
             n: int,
             k: int,
+            agent_weights: torch.Tensor,
+            objective: str,
             max_training_steps: int = 1,
             max_combinations: int = 10000,
     ):
         super(DictatorRuleSystem, self).__init__(
-            DictatorRule(n, k, max_training_steps, max_combinations)
+            DictatorRule(n, k, agent_weights, objective, max_training_steps, max_combinations),
+            agent_weights,
+            objective,
         )
         self.save_hyperparameters()
